@@ -1,5 +1,3 @@
-/// <reference path="../node_modules/discord.io/typings/index.d.ts" />
-
 import { ChatMessage } from "./packets";
 import { Matcher, SQLMatcher } from "./matcher";
 import { DiscordMessage } from "./packets";
@@ -13,7 +11,7 @@ import * as request from "request";
 import * as mysql from "mysql";
 import * as uuid from "node-uuid";
 
-const Discordie = require('discordie');
+const Discordie = require("discordie");
 
 class Sync {
 
@@ -51,7 +49,7 @@ class Sync {
             if (err) return this.log.error("Error getting Discord channel", err);
             if (ID === null) return;
 
-            const body = message.message.message.map(m => m.text || m.data).join('');
+            const body = message.message.message.map(m => m.text || m.data).join("");
 
             this.request({
                 method: "POST",
@@ -126,7 +124,7 @@ class Sync {
         );
 
         this.pubsub.on("pmessage", (pattern: string, channel: string, message: string) => {
-            const parts = channel.split(':');
+            const parts = channel.split(":");
             const id = parseInt(parts[1], 10);
             const data = JSON.parse(message);
 

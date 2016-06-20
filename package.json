@@ -4,9 +4,9 @@
   "description": "Discord chat syncer between Beam and Discord!",
   "main": "lib/index.js",
   "scripts": {
-    "build": "rm -rf lib && tsc -p ./  --noImplicitAny",
+    "build": "rm -rf lib && tsc -p ./",
     "prepublish": "typings install && npm run build",
-    "test": "mocha test --recursive && tslint"
+    "test": "mocha test -r test/_setup.js --recursive && tslint src/**/*.ts"
   },
   "repository": {
     "type": "git",
@@ -20,6 +20,7 @@
   "homepage": "https://github.com/WatchBeam/discord-sync#readme",
   "devDependencies": {
     "chai": "^3.5.0",
+    "chai-subset": "^1.2.2",
     "mocha": "^2.5.3",
     "sinon": "^1.17.4",
     "tslint": "^3.11.0",

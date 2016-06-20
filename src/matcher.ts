@@ -2,7 +2,7 @@ import { User } from "./packets";
 import { IPool } from "mysql";
 import * as cache from "lru-cache";
 
-const common = require('@mcph/beam-common');
+const common = require("@mcph/beam-common");
 
 /**
  * A Matcher correlates a channel ID to a Discord channel ID (and vise versa),
@@ -123,7 +123,7 @@ export class SQLMatcher implements Matcher {
     private resolveRoles(userID: number, ownChannelID: number, channelID: number,
             callback: (err: Error, roles?: Array<String>) => void): void {
         if (ownChannelID === channelID) {
-            return callback(undefined, ['Owner']);
+            return callback(undefined, ["Owner"]);
         }
 
         this.sql.query(`
