@@ -1,0 +1,15 @@
+# Config options for the node_redis pool.
+redis:
+    host: 127.0.0.1
+    port: 6379
+
+# Config for the MySQL pool.
+mysql:
+    connectionLimit: 5
+    host: 127.0.0.1
+    database: beam
+    user: root
+    password:
+
+# Discord bot token.
+token: asdfasdfasdfasdfasdf
