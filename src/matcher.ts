@@ -130,9 +130,10 @@ export class SQLMatcher implements Matcher {
             select group.name from \`group\`, (
                 select group_users as id from group_users__user_groups where user_groups = ?
                 union
-                select \`group\` as id from permission_grant where resourceType = "channel" and resourceId = ?
+                select \`group\` as id from permission_grant where
+                    resourceType = "channel" and resourceId = ? and user = ?
             ) as t where t.id = group.id;`,
-            [userID, channelID],
+            [userID, channelID, userID],
             (err: Error, data: Array<{name: string}>) => {
                 if (err) return callback(err);
 
