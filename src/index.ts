@@ -137,10 +137,7 @@ class Sync {
             }
         });
 
-        this.bot.connect({
-            autoReconnect: true,
-            token: config.get("token"),
-        });
+        this.bot.connect({ token: config.get("token") });
 
         this.bot.Dispatcher.on(Discordie.Events.GATEWAY_READY, () => {
             this.log.debug("Connected to Discord's gateway...");
@@ -158,7 +155,7 @@ class Sync {
 }
 
 function start() {
-    const bot = new Discordie();
+    const bot = new Discordie({ autoReconnect: true });
     const log = new Winston.Logger({
         transports: [new Winston.transports.Console()],
     });
