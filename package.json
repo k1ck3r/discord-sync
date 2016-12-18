@@ -29,7 +29,7 @@
   "dependencies": {
     "@mcph/beam-common": "^2.6.3",
     "config": "^1.21.0",
-    "discordie": "^0.7.1",
+    "discordie": "^0.10.0",
     "js-yaml": "^3.6.1",
     "lru-cache": "^4.0.1",
     "memory-cache": "^0.1.6",
