@@ -3,6 +3,7 @@ import { Matcher, SQLMatcher } from "./matcher";
 import { DiscordMessage } from "./packets";
 import { History } from "./history";
 import redis from "./redis";
+import { replace } from "./replaceWords";
 
 import * as Winston from "winston";
 import * as redisPkg from "redis";
@@ -49,7 +50,7 @@ class Sync {
             if (err) return this.log.error("Error getting Discord channel", err);
             if (ID === null) return;
 
-            const body = message.message.message.map(m => m.text || m.data).join("");
+            const body = replace(message.message.message.map(m => m.text || m.data).join(""));
 
             this.request({
                 method: "POST",
