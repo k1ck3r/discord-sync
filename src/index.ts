@@ -1,11 +1,12 @@
 import * as Bluebird from 'bluebird';
 import * as config from 'config';
-import { RedisClient } from 'redis';
+import { Redis } from 'ioredis';
 import * as request from 'request';
 import { v1 as uuid } from 'uuid';
 import * as Winston from 'winston';
 
 import { History } from './history';
+import { log } from './log';
 import { IMatcher, SQLMatcher } from './matcher';
 import { IChatMessage, IDiscordMessage } from './packets';
 import { redis } from './redis';
@@ -18,13 +19,12 @@ const requestPromise = Bluebird.promisify(request);
 class Sync {
 
     private history: History;
-    private pubsub: RedisClient;
-    private redis: RedisClient;
+    private pubsub: Redis;
+    private redis: Redis;
 
     constructor(
         private matcher: IMatcher,
         private bot: any,
-        private log: Winston.LoggerInstance,
     ) {
         this.history = new History();
         this.pubsub = redis();
@@ -49,7 +49,7 @@ class Sync {
             const data = JSON.parse(message);
 
             switch (parts[2]) {
-                case 'ChatMessage': this.sendMessageToDiscord(data).catch(err => this.log.error(err)); break;
+                case 'ChatMessage': this.sendMessageToDiscord(data).catch(err => log.error(err)); break;
                 case 'PurgeMessage': this.purgeMessage(id, data); break;
                 case 'deleteMessage': this.purgeMessage(id, { id: data.id }); break;
                 case 'DeleteMessage': this.purgeMessage(id, { id: data.id }); break;
@@ -60,7 +60,7 @@ class Sync {
         this.bot.connect({ token: config.get('token') });
 
         this.bot.Dispatcher.on(Discordie.Events.GATEWAY_READY, () => {
-            this.log.debug('Connected to Discord\'s gateway...');
+            log.debug('Connected to Discord\'s gateway...');
         });
 
         this.bot.Dispatcher.on(Discordie.Events.MESSAGE_CREATE, (e: any) => {
@@ -69,7 +69,11 @@ class Sync {
                 e.message.author.id,
                 e.message.channel_id,
                 e.message.content,
-            ).catch(err => this.log.error(err));
+            ).catch(err => log.error(err));
+        });
+
+        this.bot.Dispatcher.on(Discordie.Events.DISCONNECTED, ({ error }: any) => {
+            log.error({ error, code: error.exception }, 'Disconnected from Discord.');
         });
     }
 
@@ -78,7 +82,7 @@ class Sync {
      */
     private request(options: request.OptionsWithUrl): Bluebird<request.RequestResponse> {
         options.headers = { authorization: `Bot ${config.get('token')}` };
-        options.url = `https://discordapp.com/api${options.url}`;
+        options.url = `https://discordapp.com/api/v6${options.url}`;
         return requestPromise(options);
     }
 
@@ -106,7 +110,7 @@ class Sync {
         switch (res.statusCode) {
             case 403: this.matcher.unlink(message.channel); break;
             case 200: this.history.add(message, id, res.body.id); break;
-            default: this.log.warn('Unexpected response from Discord', res.statusCode);
+            default: log.error({ statusCode: res.statusCode }, 'Unexpected response from Discord when sending message');
         }
     }
 
@@ -149,7 +153,7 @@ class Sync {
      * Deletes a message matching a pattern from Discord channels.
      */
     private purgeMessage(channel: number, pattern: {}): void {
-        this.log.debug('Purging messages...', channel, pattern);
+        log.debug({ channel, pattern }, 'Purging messages...');
         this.history.purge(channel, pattern).forEach(r => {
             this.request({
                 url: `/channels/${r.channel}/messages/${r.id}`,
@@ -163,11 +167,8 @@ function start(): void {
     const bot = new Discordie({
         autoReconnect: true,
     });
-    const log = new Winston.Logger({
-        transports: [new Winston.transports.Console()],
-    });
 
-    new Sync(new SQLMatcher(), bot, log).start();
+    new Sync(new SQLMatcher(), bot).start();
 }
 
 if (require.main === module) {
