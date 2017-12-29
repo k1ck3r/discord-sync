@@ -1,42 +1,57 @@
 {
   "name": "discord-sync",
   "version": "1.0.0",
-  "description": "Discord chat syncer between Beam and Discord!",
+  "description": "Discord chat syncer between Mixer and Discord!",
   "main": "lib/index.js",
   "scripts": {
     "build": "rm -rf lib && tsc -p ./",
-    "prepublish": "typings install && npm run build",
-    "test": "mocha test -r test/_setup.js --recursive && tslint src/**/*.ts"
+    "prepublish": "npm run build",
+    "start": "node lib",
+    "test": "npm run test:unit && npm run test:lint",
+    "test:lint": "tslint src/**/*.ts",
+    "test:unit": "mocha test -r test/_setup.js --recursive"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/WatchBeam/discord-sync.git"
+    "url": "git+https://github.com/mixer/discord-sync.git"
   },
   "author": "Connor Peet <connor@peet.io>",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/WatchBeam/discord-sync/issues"
+    "url": "https://github.com/mixer/discord-sync/issues"
   },
-  "homepage": "https://github.com/WatchBeam/discord-sync#readme",
+  "homepage": "https://github.com/mixer/discord-sync#readme",
   "devDependencies": {
+    "@types/bluebird": "^3.5.18",
+    "@types/config": "0.0.33",
+    "@types/lru-cache": "^4.1.0",
+    "@types/memory-cache": "^0.2.0",
+    "@types/mysql": "^2.15.2",
+    "@types/node": "^8.5.1",
+    "@types/redis": "^2.8.3",
+    "@types/request": "^2.0.9",
+    "@types/uuid": "^3.4.3",
+    "@types/winston": "^2.3.7",
     "chai": "^3.5.0",
     "chai-subset": "^1.2.2",
     "mocha": "^2.5.3",
     "sinon": "^1.17.4",
-    "tslint": "^4.5.1",
-    "typescript": "^2.2.1"
+    "tslint": "^5.8.0",
+    "tslint-microsoft-contrib": "^5.0.1",
+    "typescript": "^2.6.2"
   },
   "dependencies": {
-    "@mcph/beam-common": "^2.6.3",
+    "@mcph/beam-common": "^5.0.14",
+    "bluebird": "^3.5.1",
     "config": "^1.21.0",
     "discordie": "^0.10.0",
     "js-yaml": "^3.6.1",
     "lru-cache": "^4.0.1",
     "memory-cache": "^0.1.6",
     "mysql": "^2.11.1",
-    "node-uuid": "^1.4.7",
     "redis": "^2.6.2",
     "request": "^2.72.0",
+    "uuid": "^3.1.0",
     "winston": "^2.2.0"
   }
 }

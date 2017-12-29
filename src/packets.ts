@@ -1,34 +1,34 @@
 /**
  * User contains user information to put into a chat message.
  */
-export interface User {
+export interface IUser {
     id: number;
     username: string;
-    roles: Array<string>;
+    roles: string[];
 }
 
 /**
  * A ChatMessage is sent to and from the websocket.
  */
-export interface ChatMessage {
+export interface IChatMessage {
     channel: number;
     id: string;
     user_name: string;
-    user_roles: Array<String>;
+    user_roles: string[];
     user_id: number;
     message: {
-        message: Array<MessageComponent>,
-        meta: { discord: boolean },
+        message: IMessageComponent[];
+        meta: { discord: boolean };
     };
 }
 
-export interface MessageComponent {
+export interface IMessageComponent {
     type: string;
     data: string;
     text: string;
 }
 
-export interface DiscordMessage {
+export interface IDiscordMessage {
     id: string;
     channel_id: string;
     content: string;
