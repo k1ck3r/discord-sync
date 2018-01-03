@@ -50,7 +50,7 @@ class Sync {
 
             switch (parts[2]) {
                 case 'ChatMessage': this.sendMessageToDiscord(data).catch(err => log.error(err)); break;
-                case 'PurgeMessage': this.purgeMessage(id, data); break;
+                case 'PurgeMessage': this.purgeMessage(id, { user_id: data.user_id }); break;
                 case 'deleteMessage': this.purgeMessage(id, { id: data.id }); break;
                 case 'DeleteMessage': this.purgeMessage(id, { id: data.id }); break;
                 case 'UserTimeout': this.purgeMessage(id, { user_id: data.user }); break;
@@ -152,14 +152,34 @@ class Sync {
     /**
      * Deletes a message matching a pattern from Discord channels.
      */
-    private purgeMessage(channel: number, pattern: {}): void {
+    private async purgeMessage(channel: number, pattern: {}): Promise<void> {
         log.debug({ channel, pattern }, 'Purging messages...');
-        this.history.purge(channel, pattern).forEach(r => {
-            this.request({
-                url: `/channels/${r.channel}/messages/${r.id}`,
+        const messages = this.history.purge(channel, pattern);
+
+        if (!messages.length) {
+            return;
+        }
+
+        let res: request.RequestResponse;
+        if (messages.length === 1) {
+            res = await this.request({
+                url: `/channels/${messages[0].channel}/messages/${messages[0].id}`,
                 method: 'DELETE',
             });
-        });
+        } else {
+            const channelId = messages[messages.length - 1].channel;
+            res = await this.request({
+                url: `/channels/${channelId}/messages/bulk-delete`,
+                method: 'POST',
+                json: {
+                    messages: messages.slice(-100).map(({ id }) => id),
+                },
+            });
+        }
+
+        if (res.statusCode !== 204) {
+            log.error({ statusCode: res.statusCode, messages: messages.length }, 'Unexpected response from Discord when purging messages.');
+        }
     }
 }
 
