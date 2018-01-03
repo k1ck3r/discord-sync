@@ -9,7 +9,8 @@
     "start": "node lib",
     "test": "npm run test:unit && npm run test:lint",
     "test:lint": "tslint src/**/*.ts",
-    "test:unit": "mocha test -r test/_setup.js --recursive"
+    "test:unit": "mocha test -r test/_setup.js --recursive",
+    "style": "prettier --single-quote --trailing-comma all --parser typescript --print-width 100 --write \"src/**/*.ts\""
   },
   "repository": {
     "type": "git",
@@ -38,6 +39,7 @@
     "chai": "^3.5.0",
     "chai-subset": "^1.2.2",
     "mocha": "^2.5.3",
+    "prettier": "^1.9.2",
     "sinon": "^1.17.4",
     "tslint": "^5.8.0",
     "tslint-microsoft-contrib": "^5.0.1",

@@ -17,15 +17,11 @@ const Discordie = require('discordie');
 const requestPromise = Bluebird.promisify(request);
 
 class Sync {
-
     private history: History;
     private pubsub: Redis;
     private redis: Redis;
 
-    constructor(
-        private matcher: IMatcher,
-        private bot: any,
-    ) {
+    constructor(private matcher: IMatcher, private bot: any) {
         this.history = new History();
         this.pubsub = redis();
         this.redis = redis();
@@ -49,18 +45,28 @@ class Sync {
             const data = JSON.parse(message);
 
             switch (parts[2]) {
-                case 'ChatMessage': this.sendMessageToDiscord(data).catch(err => log.error(err)); break;
-                case 'PurgeMessage': this.purgeMessage(id, { user_id: data.user_id }); break;
-                case 'deleteMessage': this.purgeMessage(id, { id: data.id }); break;
-                case 'DeleteMessage': this.purgeMessage(id, { id: data.id }); break;
-                case 'UserTimeout': this.purgeMessage(id, { user_id: data.user }); break;
+                case 'ChatMessage':
+                    this.sendMessageToDiscord(data).catch(err => log.error(err));
+                    break;
+                case 'PurgeMessage':
+                    this.purgeMessage(id, { user_id: data.user_id });
+                    break;
+                case 'deleteMessage':
+                    this.purgeMessage(id, { id: data.id });
+                    break;
+                case 'DeleteMessage':
+                    this.purgeMessage(id, { id: data.id });
+                    break;
+                case 'UserTimeout':
+                    this.purgeMessage(id, { user_id: data.user });
+                    break;
             }
         });
 
         this.bot.connect({ token: config.get('token') });
 
         this.bot.Dispatcher.on(Discordie.Events.GATEWAY_READY, () => {
-            log.debug('Connected to Discord\'s gateway...');
+            log.debug('Connected to chat gateway.');
         });
 
         this.bot.Dispatcher.on(Discordie.Events.MESSAGE_CREATE, (e: any) => {
@@ -108,9 +114,17 @@ class Sync {
         });
 
         switch (res.statusCode) {
-            case 403: this.matcher.unlink(message.channel); break;
-            case 200: this.history.add(message, id, res.body.id); break;
-            default: log.error({ statusCode: res.statusCode }, 'Unexpected response from Discord when sending message');
+            case 403:
+                this.matcher.unlink(message.channel);
+                break;
+            case 200:
+                this.history.add(message, id, res.body.id);
+                break;
+            default:
+                log.error(
+                    { statusCode: res.statusCode },
+                    'Unexpected response from Discord when sending message',
+                );
         }
     }
 
@@ -178,7 +192,10 @@ class Sync {
         }
 
         if (res.statusCode !== 204) {
-            log.error({ statusCode: res.statusCode, messages: messages.length }, 'Unexpected response from Discord when purging messages.');
+            log.error(
+                { statusCode: res.statusCode, messages: messages.length },
+                'Unexpected response from Discord when purging messages.',
+            );
         }
     }
 }

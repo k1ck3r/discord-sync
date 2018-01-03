@@ -11,7 +11,6 @@ export interface IRecord {
  * Discord messages so that deletes and purges can be mirrored.
  */
 export class History {
-
     private history: IRecord[];
 
     constructor(private cap: number = 1000) {
@@ -50,6 +49,7 @@ export class History {
 
     private match(predicate: any): (obj: any) => boolean {
         const keys = Object.keys(predicate);
-        return (match: any) => !keys.some(key => !match.hasOwnProperty(key) || match[key] !== predicate[key]);
+        return (match: any) =>
+            !keys.some(key => !match.hasOwnProperty(key) || match[key] !== predicate[key]);
     }
 }

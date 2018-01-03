@@ -10,7 +10,6 @@ import { sql } from './sql';
  * and user IDs to Discord user IDs.
  */
 export interface IMatcher {
-
     /**
      * Looks up the Discord channel associated with the Beam channel ID.
      */
@@ -34,10 +33,11 @@ export interface IMatcher {
     unlink(channelID: number): void;
 }
 
-interface IPruneable { prune(): void; }
+interface IPruneable {
+    prune(): void;
+}
 
 export class SQLMatcher implements IMatcher {
-
     private discordToBeamCache: cache.Cache<string, number>;
     private beamToDiscordCache: cache.Cache<string, string>;
     private userCache: cache.Cache<string, IUser>;
@@ -102,7 +102,9 @@ export class SQLMatcher implements IMatcher {
             return id;
         }
 
-        const data = await sql.queryAsync<{ userID: number, channelID: number, username: string }[]>(
+        const data = await sql.queryAsync<
+            { userID: number; channelID: number; username: string }[]
+        >(
             `select channel.userId as userID, channel.id as channelID, channel.token as username
             from external_oauth_grant, channel
             where serviceId = ? and service = "discord" and
@@ -136,18 +138,20 @@ export class SQLMatcher implements IMatcher {
      * Cleans out expired items from the SQL caches.
      */
     private prune(): void {
-        [
-            this.discordToBeamCache,
-            this.beamToDiscordCache,
-            this.userCache,
-        ].forEach((item: Object) => (<IPruneable>item).prune());
+        [this.discordToBeamCache, this.beamToDiscordCache, this.userCache].forEach((item: Object) =>
+            (<IPruneable>item).prune(),
+        );
     }
 
     /**
      * Returns a list of roles that the user has when chatting in the
      * provided channel.
      */
-    private async resolveRoles(userID: number, ownChannelID: number, channelID: number): Promise<string[]> {
+    private async resolveRoles(
+        userID: number,
+        ownChannelID: number,
+        channelID: number,
+    ): Promise<string[]> {
         if (ownChannelID === channelID) {
             return ['Owner'];
         }
@@ -162,8 +166,6 @@ export class SQLMatcher implements IMatcher {
             [userID, channelID, userID],
         );
 
-        return roles
-            .sort(data.map(d => d.name))
-            .map((r: {name: string}) => r.name);
+        return roles.sort(data.map(d => d.name)).map((r: { name: string }) => r.name);
     }
 }

@@ -26,9 +26,9 @@ function getStreams(): Logger.Stream[] {
 }
 
 export const log = Logger.createLogger({
-     name: 'discord-sync',
-     streams: getStreams(),
-     level: 'debug',
+    name: 'discord-sync',
+    streams: getStreams(),
+    level: 'debug',
 });
 
 process.on('uncaughtException', err => log.error(err));
