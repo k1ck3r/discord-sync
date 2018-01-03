@@ -1,22 +1,9 @@
-import { ChatMessage } from "./packets";
+import { IChatMessage } from './packets';
 
-export interface Record {
-    message: ChatMessage;
+export interface IRecord {
+    message: IChatMessage;
     channel: string;
     id: string;
-}
-
-function matcher(predicate: any): (obj: any) => boolean {
-    const keys = Object.keys(predicate);
-    return function (match: any): boolean {
-        for (let i = 0; i < keys.length; i++) {
-            if (!match.hasOwnProperty(keys[i]) || match[keys[i]] !== predicate[keys[i]]) {
-                return false;
-            }
-        }
-
-        return true;
-    };
 }
 
 /**
@@ -24,8 +11,7 @@ function matcher(predicate: any): (obj: any) => boolean {
  * Discord messages so that deletes and purges can be mirrored.
  */
 export class History {
-
-    private history: Array<Record>;
+    private history: IRecord[];
 
     constructor(private cap: number = 1000) {
         this.history = [];
@@ -34,7 +20,7 @@ export class History {
     /**
      * Add inserts a new message into the history list.
      */
-    add(message: ChatMessage, channel: string, id: string) {
+    public add(message: IChatMessage, channel: string, id: string): void {
         this.history.push({ message, channel, id });
         if (this.history.length > this.cap * 3 / 2) {
             this.history = this.history.slice(-this.cap);
@@ -45,11 +31,11 @@ export class History {
      * purge deletes messages matching the object and returns the list of
      * messages in channels that were removed.
      */
-    purge(channelID: number, match: any): Array<Record> {
+    public purge(channelID: number, match: any): IRecord[] {
         match.channel = channelID;
 
-        const predicate = matcher(match);
-        const removed = new Array<Record>();
+        const predicate = this.match(match);
+        const removed: IRecord[] = [];
         for (let i = 0; i < this.history.length; i++) {
             if (predicate(this.history[i].message)) {
                 removed.push(this.history[i]);
@@ -59,5 +45,11 @@ export class History {
         }
 
         return removed;
+    }
+
+    private match(predicate: any): (obj: any) => boolean {
+        const keys = Object.keys(predicate);
+        return (match: any) =>
+            !keys.some(key => !match.hasOwnProperty(key) || match[key] !== predicate[key]);
     }
 }

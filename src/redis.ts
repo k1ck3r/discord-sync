@@ -1,4 +1,4 @@
-import * as redis from "redis";
-import * as config from "config";
+import * as config from 'config';
+import * as Redis from 'ioredis';
 
-export default () => redis.createClient(config.get("redis"));
+export const redis = () => new Redis(config.get('redis'));

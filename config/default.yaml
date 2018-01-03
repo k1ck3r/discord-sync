@@ -13,3 +13,6 @@ mysql:
 
 # Discord bot token.
 token: asdfasdfasdfasdfasdf
+
+sentry:
+    dsn:
