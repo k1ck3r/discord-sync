@@ -79,6 +79,15 @@ class Sync {
         });
 
         this.bot.Dispatcher.on(Discordie.Events.DISCONNECTED, ({ error }: any) => {
+            // Discord refused our connection because the total shard count is too small.
+            if (error.exception === 4011) {
+                log.error(
+                    'Each shard owns too many guilds. Refusing to reconnect until more shards are available.',
+                );
+                this.bot.autoReconnect.disable();
+                return;
+            }
+
             log.error({ error, code: error.exception }, 'Disconnected from Discord.');
         });
     }
