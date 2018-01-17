@@ -8,11 +8,18 @@ node {
         stage("Install") {
             sh 'npm install'
         }
-        stage("Test") {
-            sh 'npm run test'
-        }
-        stage("Build") {
-            sh 'npm run build'
+        try {
+            stage("Initialize services") {
+                sh 'sudo /usr/bin/systemctl start etcd || true'
+            }
+            stage("Test") {
+                sh 'npm run test'
+            }
+            stage("Build") {
+                sh 'npm run build'
+            }
+        } finally {
+            sh 'sudo /usr/bin/systemctl stop etcd || true'
         }
         currentBuild.result = "SUCCESS"
     } catch(e) {

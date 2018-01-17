@@ -11,7 +11,7 @@ export interface IRecord {
  * Discord messages so that deletes and purges can be mirrored.
  */
 export class History {
-    private history: IRecord[];
+    public history: IRecord[];
 
     constructor(private cap: number = 1000) {
         this.history = [];

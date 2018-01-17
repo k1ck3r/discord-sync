@@ -11,6 +11,11 @@ mysql:
     user: root
     password:
 
+etcd3:
+    hosts:
+    - 127.0.0.1:2379
+    namespace: discord/sync/shards/
+
 # Discord bot token.
 token: asdfasdfasdfasdfasdf
 

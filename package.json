@@ -8,8 +8,9 @@
     "prepublish": "npm run build",
     "start": "node lib",
     "test": "npm run test:unit && npm run test:lint",
-    "test:lint": "tslint src/**/*.ts",
-    "test:unit": "mocha test -r test/_setup.js --recursive",
+    "test:lint": "tslint src/**/*.ts test/**/*.ts",
+    "test:unit": "mocha test -r ts-node/register test/_setup.ts test/**/*.ts",
+    "test:cover": "nyc --all mocha test -r ts-node/register test/_setup.ts test/**/*.ts",
     "style": "prettier --single-quote --trailing-comma all --parser typescript --print-width 100 --write \"src/**/*.ts\""
   },
   "repository": {
@@ -22,27 +23,50 @@
     "url": "https://github.com/mixer/discord-sync/issues"
   },
   "homepage": "https://github.com/mixer/discord-sync#readme",
+  "nyc": {
+    "extension": [
+        ".ts"
+    ],
+    "include": [
+        "src/**/*.ts"
+    ],
+    "require": [
+        "ts-node/register"
+    ],
+    "exclude": [
+        "test",
+        "lib"
+    ]
+  },
   "devDependencies": {
     "@types/bluebird": "^3.5.18",
     "@types/bunyan": "^1.8.4",
+    "@types/chai": "^4.1.0",
+    "@types/chai-subset": "^1.3.1",
     "@types/config": "0.0.33",
     "@types/ioredis": "^3.2.4",
     "@types/lru-cache": "^4.1.0",
     "@types/memory-cache": "^0.2.0",
+    "@types/mocha": "^2.2.46",
     "@types/mysql": "^2.15.2",
     "@types/node": "^8.5.1",
     "@types/raven": "^2.1.3",
     "@types/redis": "^2.8.3",
     "@types/request": "^2.0.9",
+    "@types/sinon": "^4.1.3",
+    "@types/sinon-chai": "^2.7.29",
     "@types/uuid": "^3.4.3",
     "@types/winston": "^2.3.7",
     "chai": "^3.5.0",
     "chai-subset": "^1.2.2",
     "mocha": "^2.5.3",
+    "nyc": "^11.4.1",
     "prettier": "^1.9.2",
     "sinon": "^1.17.4",
+    "sinon-chai": "^2.14.0",
+    "ts-node": "^4.1.0",
     "tslint": "^5.8.0",
-    "tslint-microsoft-contrib": "^5.0.1",
+    "tslint-microsoft-contrib": "5.0.1",
     "typescript": "^2.6.2"
   },
   "dependencies": {
@@ -53,6 +77,7 @@
     "bunyan-prettystream": "^0.1.3",
     "config": "^1.21.0",
     "discordie": "^0.10.0",
+    "etcd3": "^0.2.7",
     "ioredis": "^3.2.2",
     "js-yaml": "^3.6.1",
     "lru-cache": "^4.0.1",

@@ -1,27 +1,34 @@
 import * as Bluebird from 'bluebird';
 import * as config from 'config';
+import { Etcd3 } from 'etcd3';
 import { Redis } from 'ioredis';
 import * as request from 'request';
 import { v1 as uuid } from 'uuid';
 import * as Winston from 'winston';
 
+import { DiscordGatewayError } from './errors';
 import { History } from './history';
 import { log } from './log';
 import { IMatcher, SQLMatcher } from './matcher';
 import { IChatMessage, IDiscordMessage } from './packets';
 import { redis } from './redis';
 import { replace } from './replaceWords';
+import { Sharding } from './sharding';
 
 // tslint:disable-next-line
 const Discordie = require('discordie');
 const requestPromise = Bluebird.promisify(request);
 
+const etcd3 = new Etcd3({ hosts: config.get<string[]>('etcd3.hosts') });
+
 class Sync {
     private history: History;
     private pubsub: Redis;
     private redis: Redis;
+    private sharding: Sharding;
+    private bot: any;
 
-    constructor(private matcher: IMatcher, private bot: any) {
+    constructor(private matcher: IMatcher) {
         this.history = new History();
         this.pubsub = redis();
         this.redis = redis();
@@ -44,6 +51,10 @@ class Sync {
             const id = parseInt(parts[1], 10);
             const data = JSON.parse(message);
 
+            if (this.sharding.shardId !== 0) {
+                return;
+            }
+
             switch (parts[2]) {
                 case 'ChatMessage':
                     this.sendMessageToDiscord(data).catch(err => log.error(err));
@@ -63,11 +74,41 @@ class Sync {
             }
         });
 
+        this.sharding = new Sharding(etcd3, (shardId, shardCount) => {
+            if (!this.bot || this.bot.state === Discordie.States.CONNECTED) {
+                this.connect(shardId, shardCount);
+            }
+        });
+        this.sharding.start();
+    }
+
+    /**
+     * Connect bot to Discord and authenticate
+     */
+    public connect(shardId: number | null, shardCount: number | null) {
+        if (this.bot) {
+            this.disconnect();
+        }
+
+        if (shardId === null) {
+            return;
+        }
+
+        let options: { autoReconnect: boolean; shardId?: number; shardCount?: number } = {
+            autoReconnect: true,
+        };
+
+        if (shardCount && shardCount > 1) {
+            options = { ...options, shardId, shardCount };
+        }
+
+        log.info({ shardId, shardCount }, 'Connecting to Discord...');
+        const bot = new Discordie(options);
+
+        this.bot = bot;
         this.bot.connect({ token: config.get('token') });
 
-        this.bot.Dispatcher.on(Discordie.Events.GATEWAY_READY, () => {
-            log.debug('Connected to chat gateway.');
-        });
+        this.bot.Dispatcher.on(Discordie.Events.GATEWAY_READY, () => this.onReady());
 
         this.bot.Dispatcher.on(Discordie.Events.MESSAGE_CREATE, (e: any) => {
             this.mirrorMessageFromDiscord(
@@ -78,18 +119,49 @@ class Sync {
             ).catch(err => log.error(err));
         });
 
-        this.bot.Dispatcher.on(Discordie.Events.DISCONNECTED, ({ error }: any) => {
-            // Discord refused our connection because the total shard count is too small.
-            if (error.exception === 4011) {
-                log.error(
-                    'Each shard owns too many guilds. Refusing to reconnect until more shards are available.',
-                );
-                this.bot.autoReconnect.disable();
-                return;
-            }
+        this.bot.Dispatcher.on(Discordie.Events.DISCONNECTED, ({ error }: any) =>
+            this.onDisconnected(error),
+        );
+    }
 
-            log.error({ error, code: error.exception }, 'Disconnected from Discord.');
-        });
+    /**
+     * Executed when the bot has successfully authenticated with Discord's gateway.
+     */
+    private onReady(): void {
+        log.debug('Connected to chat gateway.');
+
+        // If the sharding info changed during connection, reconnect now, due to a Discordie issue.
+        const { shardId, shardCount } = this.sharding;
+        const options = this.bot.options;
+        if ((options.shardId || 0) !== shardId || (options.shardCount || 1) !== shardCount) {
+            this.connect(shardId, shardCount);
+        }
+    }
+
+    /**
+     * Executed when the bot has disconnected from Discord's gateway.
+     */
+    private onDisconnected(error: Error & { exception: number }): void {
+        // Discord refused our connection because the total shard count is too small.
+        if (error.exception === DiscordGatewayError.InvalidSharding) {
+            log.error(
+                { shardCount: this.sharding.shardCount },
+                'Each shard owns too many guilds. Refusing to reconnect until more shards are available.',
+            );
+            this.bot.autoReconnect.disable();
+            return;
+        }
+
+        log.error({ error, code: error.exception }, 'Disconnected from Discord.');
+    }
+
+    /**
+     * Disconnect the bot from the Discord gateway, if connected.
+     */
+    private disconnect(): void {
+        log.info('Disconnected from Discord.');
+        this.bot.disconnect();
+        this.bot = null;
     }
 
     /**
@@ -210,11 +282,7 @@ class Sync {
 }
 
 function start(): void {
-    const bot = new Discordie({
-        autoReconnect: true,
-    });
-
-    new Sync(new SQLMatcher(), bot).start();
+    new Sync(new SQLMatcher()).start();
 }
 
 if (require.main === module) {

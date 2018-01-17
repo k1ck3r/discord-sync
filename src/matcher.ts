@@ -13,19 +13,19 @@ export interface IMatcher {
     /**
      * Looks up the Discord channel associated with the Beam channel ID.
      */
-    getDiscordChannel(channelID: number): Promise<string>;
+    getDiscordChannel(channelID: number): Promise<string | null>;
 
     /**
      * Returns the Beam channel associated with the Discord channel ID.
      */
-    getBeamChannel(discordID: string): Promise<number>;
+    getBeamChannel(discordID: string): Promise<number | null>;
 
     /**
      * GetBeamUser returns a Beam user associated with the Discord user. The
      * function is called with the Discord user's ID and the Beam channel ID
      * that they're chatting in.
      */
-    getBeamUser(discordUserID: string, channelID: number): Promise<IUser>;
+    getBeamUser(discordUserID: string, channelID: number): Promise<IUser | null>;
 
     /**
      * Removes a Discord chat link from a channel.
@@ -38,9 +38,9 @@ interface IPruneable {
 }
 
 export class SQLMatcher implements IMatcher {
-    private discordToBeamCache: cache.Cache<string, number>;
-    private beamToDiscordCache: cache.Cache<string, string>;
-    private userCache: cache.Cache<string, IUser>;
+    private discordToBeamCache: cache.Cache<string, number | null>;
+    private beamToDiscordCache: cache.Cache<string, string | null>;
+    private userCache: cache.Cache<string, IUser | null>;
     private interval: NodeJS.Timer;
 
     /**
@@ -63,7 +63,7 @@ export class SQLMatcher implements IMatcher {
         clearInterval(this.interval);
     }
 
-    public async getDiscordChannel(channelID: number): Promise<string> {
+    public async getDiscordChannel(channelID: number): Promise<string | null> {
         const id = this.beamToDiscordCache.get(String(channelID));
         if (id !== undefined) {
             return id;
@@ -80,7 +80,7 @@ export class SQLMatcher implements IMatcher {
         return discordID;
     }
 
-    public async getBeamChannel(discordID: string): Promise<number> {
+    public async getBeamChannel(discordID: string): Promise<number | null> {
         const id = this.discordToBeamCache.get(discordID);
         if (id !== undefined) {
             return id;
@@ -96,7 +96,7 @@ export class SQLMatcher implements IMatcher {
         return channelID;
     }
 
-    public async getBeamUser(discordUserID: string, channelID: number): Promise<IUser> {
+    public async getBeamUser(discordUserID: string, channelID: number): Promise<IUser | null> {
         const id = this.userCache.get(discordUserID);
         if (id !== undefined) {
             return id;
