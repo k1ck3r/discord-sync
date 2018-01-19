@@ -1,4 +1,4 @@
-import { roles } from '@mcph/beam-common';
+import { resolveChannelGroups, roles } from '@mcph/beam-common';
 import * as cache from 'lru-cache';
 import { Pool } from 'mysql';
 
@@ -18,14 +18,21 @@ export interface IMatcher {
     /**
      * Returns the Beam channel associated with the Discord channel ID.
      */
-    getBeamChannel(discordID: string): Promise<number | null>;
+    getMixerChannel(discordID: string): Promise<number | null>;
 
     /**
-     * GetBeamUser returns a Beam user associated with the Discord user. The
+     * getMixerUser returns a Mixer user associated with the Discord user. The
      * function is called with the Discord user's ID and the Beam channel ID
      * that they're chatting in.
      */
-    getBeamUser(discordUserID: string, channelID: number): Promise<IUser | null>;
+    getMixerUser(discordUserID: string, channelID: number): Promise<IUser | null>;
+
+    /**
+     * Purges the given Mixer user's roles cache, so that roles can be instantly
+     * updated without naturally waiting for the next cache purge. If the channel
+     * ID is not specified, roles will be purged from all channels.
+     */
+    purgeMixerUserRoles(userID: number, channelID?: number): void;
 
     /**
      * Removes a Discord chat link from a channel.
@@ -33,14 +40,25 @@ export interface IMatcher {
     unlink(channelID: number): void;
 }
 
-interface IPruneable {
-    prune(): void;
+interface ICachedUser {
+    channelID: number;
+    username: string;
+    roles: { [channel: string]: string[] };
 }
 
 export class SQLMatcher implements IMatcher {
-    private discordToBeamCache: cache.Cache<string, number | null>;
-    private beamToDiscordCache: cache.Cache<string, string | null>;
-    private userCache: cache.Cache<string, IUser | null>;
+    // Cache to map Discord channel IDs to Mixer channel IDs.
+    private discordToMixerChannelCache: cache.Cache<string, PromiseLike<number | null>>;
+
+    // Cache to map Mixer channel IDs to Discord channel IDs.
+    private mixerToDiscordChannelCache: cache.Cache<string, PromiseLike<string | null>>;
+
+    // Cache to map Discord user IDs to Mixer user IDs.
+    private discordToMixerUserCache: cache.Cache<string, PromiseLike<number | null>>;
+
+    // Cache to temporarily hold Mixer user information such as username and roles.
+    private mixerUserCache: cache.Cache<number, ICachedUser>;
+
     private interval: NodeJS.Timer;
 
     /**
@@ -48,9 +66,10 @@ export class SQLMatcher implements IMatcher {
      * given TTL for caching uses and channels.
      */
     constructor(cacheTTL: number = 60000) {
-        this.discordToBeamCache = cache({ maxAge: cacheTTL });
-        this.beamToDiscordCache = cache({ maxAge: cacheTTL });
-        this.userCache = cache({ maxAge: cacheTTL });
+        this.discordToMixerChannelCache = cache({ maxAge: cacheTTL });
+        this.mixerToDiscordChannelCache = cache({ maxAge: cacheTTL });
+        this.discordToMixerUserCache = cache({ maxAge: cacheTTL });
+        this.mixerUserCache = cache({ maxAge: cacheTTL });
 
         this.interval = setInterval(() => this.prune(), cacheTTL * 3 / 2);
     }
@@ -64,83 +83,128 @@ export class SQLMatcher implements IMatcher {
     }
 
     public async getDiscordChannel(channelID: number): Promise<string | null> {
-        const id = this.beamToDiscordCache.get(String(channelID));
+        const id = this.mixerToDiscordChannelCache.get(String(channelID));
         if (id !== undefined) {
             return id;
         }
 
-        const data = await sql.queryAsync<{ id: string }[]>(
-            `select liveChatChannel as id from discord_bot
-            where channelId = ? and liveChatChannel is not null limit 1`,
-            [channelID],
-        );
+        const promise = sql
+            .queryAsync<{ id: string }[]>(
+                `select liveChatChannel as id from discord_bot
+                where channelId = ? and liveChatChannel is not null limit 1`,
+                [channelID],
+            )
+            .then(data => data.length === 0 ? null : data[0].id);
 
-        const discordID = data.length === 0 ? null : data[0].id;
-        this.beamToDiscordCache.set(String(channelID), discordID);
-        return discordID;
+        this.mixerToDiscordChannelCache.set(String(channelID), promise);
+        return promise;
     }
 
-    public async getBeamChannel(discordID: string): Promise<number | null> {
-        const id = this.discordToBeamCache.get(discordID);
+    public async getMixerChannel(discordID: string): Promise<number | null> {
+        const id = this.discordToMixerChannelCache.get(discordID);
         if (id !== undefined) {
             return id;
         }
 
-        const data = await sql.queryAsync<{ id: number }[]>(
-            `select channelId as id from discord_bot where liveChatChannel = ? limit 1`,
-            [discordID],
-        );
+        const promise = sql
+            .queryAsync<{ id: number }[]>(
+                `select channelId as id from discord_bot where liveChatChannel = ? limit 1`,
+                [discordID],
+            )
+            .then(data => data.length === 0 ? null : data[0].id);
 
-        const channelID = data.length === 0 ? null : data[0].id;
-        this.discordToBeamCache.set(discordID, channelID);
-        return channelID;
+        this.discordToMixerChannelCache.set(discordID, promise);
+        return promise;
     }
 
-    public async getBeamUser(discordUserID: string, channelID: number): Promise<IUser | null> {
-        const id = this.userCache.get(discordUserID);
-        if (id !== undefined) {
-            return id;
-        }
-
-        const data = await sql.queryAsync<
-            { userID: number; channelID: number; username: string }[]
-        >(
-            `select channel.userId as userID, channel.id as channelID, channel.token as username
-            from external_oauth_grant, channel
-            where serviceId = ? and service = "discord" and
-                channel.userId = external_oauth_grant.userId
-            limit 1`,
-            [discordUserID],
-        );
-
-        if (data.length === 0) {
-            this.userCache.set(discordUserID, null);
+    public async getMixerUser(discordUserID: string, channelID: number): Promise<IUser | null> {
+        const id = await this.getMixerUserID(discordUserID, channelID);
+        if (!id) {
             return null;
         }
 
-        const resolvedRoles = await this.resolveRoles(data[0].userID, data[0].channelID, channelID);
-        const user: IUser = {
-            roles: resolvedRoles,
-            id: data[0].userID,
-            username: data[0].username,
-        };
+        const user = this.mixerUserCache.get(id);
+        if (!user) {
+            return null;
+        }
 
-        this.userCache.set(discordUserID, user);
-        return user;
+        if (!user.roles.hasOwnProperty(channelID)) {
+            user.roles[channelID] = await this.resolveRoles(id, user.channelID, channelID);
+        }
+
+        return {
+            id,
+            username: user.username,
+            roles: user.roles[channelID],
+        };
+    }
+
+    public purgeMixerUserRoles(userID: number, channelID?: number): void {
+        const user = this.mixerUserCache.get(userID);
+        if (!user) {
+            return;
+        }
+
+        if (channelID) {
+            delete user.roles[channelID];
+        }
+
+        user.roles = {};
     }
 
     public unlink(channelID: number): void {
-        this.beamToDiscordCache.set(String(channelID), null);
+        this.mixerToDiscordChannelCache.set(String(channelID), Promise.resolve(null));
         sql.query(`update discord_bot set liveChatChannel = NULL where channelId = ?`, [channelID]);
+    }
+
+    /**
+     * Used to retrieve a Mixer user ID by a given Discord ID. If the user has not
+     * been cached yet, basic user information will be fetched and cached.
+     */
+    private async getMixerUserID(discordUserID: string, channelID: number): Promise<number | null> {
+        const id = this.discordToMixerUserCache.get(discordUserID);
+        if (id !== undefined) {
+            return id;
+        }
+
+        const promise = sql
+            .queryAsync<{ userID: number; channelID: number; username: string }[]>(
+                `select channel.userId as userID, channel.id as channelID, channel.token as username
+                from external_oauth_grant, channel
+                where serviceId = ? and service = "discord" and
+                    channel.userId = external_oauth_grant.userId
+                limit 1`,
+                [discordUserID],
+            )
+            .then(data => {
+                if (data.length === 0) {
+                    return null;
+                }
+
+                const userID = data[0].userID;
+                this.mixerUserCache.set(userID, {
+                    channelID: data[0].channelID,
+                    username: data[0].username,
+                    roles: {},
+                });
+
+                return userID;
+            });
+
+        this.discordToMixerUserCache.set(discordUserID, promise);
+        return promise;
     }
 
     /**
      * Cleans out expired items from the SQL caches.
      */
     private prune(): void {
-        [this.discordToBeamCache, this.beamToDiscordCache, this.userCache].forEach((item: Object) =>
-            (<IPruneable>item).prune(),
-        );
+        [
+            this.discordToMixerChannelCache,
+            this.mixerToDiscordChannelCache,
+            this.discordToMixerUserCache,
+            this.mixerUserCache,
+        ].forEach(item => item.prune());
     }
 
     /**
@@ -152,20 +216,13 @@ export class SQLMatcher implements IMatcher {
         ownChannelID: number,
         channelID: number,
     ): Promise<string[]> {
+        const { query, params } = resolveChannelGroups(userID, [channelID]);
+        const result = (await sql.queryAsync<{ name: string }[]>(query, params)).map(r => r.name);
+
         if (ownChannelID === channelID) {
-            return ['Owner'];
+            result.unshift('Owner');
         }
 
-        const data = await sql.queryAsync<{ name: string }[]>(
-            `select group.name from \`group\`, (
-                select group_users as id from group_users__user_groups where user_groups = ?
-                union
-                select \`group\` as id from permission_grant where
-                    resourceType = "channel" and resourceId = ? and user = ?
-            ) as t where t.id = group.id;`,
-            [userID, channelID, userID],
-        );
-
-        return roles.sort(data.map(d => d.name)).map((r: { name: string }) => r.name);
+        return roles.sort(result).map(r => r.name);
     }
 }

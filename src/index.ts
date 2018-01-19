@@ -44,6 +44,7 @@ class Sync {
             'chat:*:UserTimeout',
             'chatcompat:*:deleteMessage',
             'chat:*:PurgeMessage',
+            'chat:*:UserRoleChange',
         );
 
         this.pubsub.on('pmessage', (pattern: string, channel: string, message: string) => {
@@ -70,6 +71,12 @@ class Sync {
                     break;
                 case 'UserTimeout':
                     this.purgeMessage(id, { user_id: data.user });
+                    break;
+                case 'UserRoleChange':
+                    this.matcher.purgeMixerUserRoles(
+                        data.userId,
+                        parts[1] === '*' ? undefined : id,
+                    );
                     break;
             }
         });
@@ -218,13 +225,13 @@ class Sync {
         discordChannelID: string,
         message: string,
     ): Promise<void> {
-        const channelID = await this.matcher.getBeamChannel(discordChannelID);
+        const channelID = await this.matcher.getMixerChannel(discordChannelID);
         if (channelID === null) {
             return;
         }
 
-        const user = await this.matcher.getBeamUser(discordUserID, channelID);
-        if (user === null) {
+        const user = await this.matcher.getMixerUser(discordUserID, channelID);
+        if (user === null || user.roles.includes('Banned')) {
             return;
         }
 
@@ -240,7 +247,7 @@ class Sync {
             },
         };
 
-        this.history.add(ev, discordChannelID, discordUserID);
+        this.history.add(ev, discordChannelID, messageID);
         this.redis.publish(`chat:${channelID}:ChatMessage`, JSON.stringify(ev));
     }
 
