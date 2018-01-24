@@ -23,7 +23,7 @@ node {
                 sh 'npm run build'
             }
             stage("Archive dist") {
-                archiveArtifacts artifacts: "git-commit-id, build-id, lib/**/*", fingerprint: false
+                archiveArtifacts artifacts: "git-commit-id, build-id, lib/**/*, package.json, config/default.yaml, node_modules/**/*", fingerprint: false
             }
         } finally {
             sh 'sudo /usr/bin/systemctl stop etcd || true'
