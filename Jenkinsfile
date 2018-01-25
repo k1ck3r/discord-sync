@@ -5,6 +5,10 @@ node {
         stage("Checkout") {
             checkout scm
         }
+        stage("Build Info") {
+            sh "git rev-parse --short HEAD > git-commit-id"
+            writeFile file: 'build-id', text: env.BUILD_NUMBER
+        }
         stage("Install") {
             sh 'npm install'
         }
@@ -17,6 +21,9 @@ node {
             }
             stage("Build") {
                 sh 'npm run build'
+            }
+            stage("Archive dist") {
+                archiveArtifacts artifacts: "git-commit-id, build-id, lib/**/*, package.json, config/default.yaml, node_modules/**/*", fingerprint: false
             }
         } finally {
             sh 'sudo /usr/bin/systemctl stop etcd || true'
