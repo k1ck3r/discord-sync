@@ -52,13 +52,11 @@ class Sync {
             const id = parseInt(parts[1], 10);
             const data = JSON.parse(message);
 
-            if (this.sharding.shardId !== 0) {
-                return;
-            }
-
             switch (parts[2]) {
                 case 'ChatMessage':
-                    this.sendMessageToDiscord(data).catch(err => log.error(err));
+                    if (this.sharding.shardId === 0) {
+                        this.sendMessageToDiscord(data).catch(err => log.error(err));
+                    }
                     break;
                 case 'PurgeMessage':
                     this.purgeMessage(id, { user_id: data.user_id });
