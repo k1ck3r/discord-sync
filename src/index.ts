@@ -208,7 +208,7 @@ class Sync {
                 break;
             default:
                 log.error(
-                    { statusCode: res.statusCode },
+                    { statusCode: res.statusCode, body: res.body },
                     'Unexpected response from Discord when sending message',
                 );
         }
@@ -265,6 +265,7 @@ class Sync {
             res = await this.request({
                 url: `/channels/${messages[0].channel}/messages/${messages[0].id}`,
                 method: 'DELETE',
+                json: true,
             });
         } else {
             const channelId = messages[messages.length - 1].channel;
@@ -279,7 +280,7 @@ class Sync {
 
         if (res.statusCode !== 204) {
             log.error(
-                { statusCode: res.statusCode, messages: messages.length },
+                { statusCode: res.statusCode, body: res.body, messages: messages.length },
                 'Unexpected response from Discord when purging messages.',
             );
         }

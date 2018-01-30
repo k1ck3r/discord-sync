@@ -94,7 +94,7 @@ export class SQLMatcher implements IMatcher {
                 where channelId = ? and liveChatChannel is not null limit 1`,
                 [channelID],
             )
-            .then(data => data.length === 0 ? null : data[0].id);
+            .then(data => (data.length === 0 ? null : data[0].id));
 
         this.mixerToDiscordChannelCache.set(String(channelID), promise);
         return promise;
@@ -111,7 +111,7 @@ export class SQLMatcher implements IMatcher {
                 `select channelId as id from discord_bot where liveChatChannel = ? limit 1`,
                 [discordID],
             )
-            .then(data => data.length === 0 ? null : data[0].id);
+            .then(data => (data.length === 0 ? null : data[0].id));
 
         this.discordToMixerChannelCache.set(discordID, promise);
         return promise;
