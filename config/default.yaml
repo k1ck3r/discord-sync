@@ -14,7 +14,7 @@ mysql:
 etcd3:
     hosts:
     - 127.0.0.1:2379
-    namespace: discord/sync/shards/
+    namespace: discord/sync
 
 # Discord bot token.
 token: asdfasdfasdfasdfasdf

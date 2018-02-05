@@ -11,7 +11,7 @@
     "test:lint": "tslint src/**/*.ts test/**/*.ts",
     "test:unit": "mocha test -r ts-node/register test/_setup.ts test/**/*.ts",
     "test:cover": "nyc --all mocha test -r ts-node/register test/_setup.ts test/**/*.ts",
-    "style": "prettier --single-quote --trailing-comma all --parser typescript --print-width 100 --write \"src/**/*.ts\""
+    "style": "prettier --single-quote --trailing-comma all --parser typescript --print-width 100 --write \"src/**/*.ts\" \"test/**/*.ts\""
   },
   "repository": {
     "type": "git",
@@ -25,17 +25,17 @@
   "homepage": "https://github.com/mixer/discord-sync#readme",
   "nyc": {
     "extension": [
-        ".ts"
+      ".ts"
     ],
     "include": [
-        "src/**/*.ts"
+      "src/**/*.ts"
     ],
     "require": [
-        "ts-node/register"
+      "ts-node/register"
     ],
     "exclude": [
-        "test",
-        "lib"
+      "test",
+      "lib"
     ]
   },
   "devDependencies": {
@@ -62,7 +62,7 @@
     "mocha": "^2.5.3",
     "nyc": "^11.4.1",
     "prettier": "^1.9.2",
-    "sinon": "^1.17.4",
+    "sinon": "^4.2.2",
     "sinon-chai": "^2.14.0",
     "ts-node": "^4.1.0",
     "tslint": "^5.8.0",

@@ -26,7 +26,7 @@ export class Sharding {
         private client: Etcd3,
         private doConnect: (shardId: number | null, shardCount: number | null) => void,
     ) {
-        this.nsp = client.namespace(config.get<string>('etcd3.namespace'));
+        this.nsp = client.namespace(`${config.get<string>('etcd3.namespace')}/shards/`);
     }
 
     /**

@@ -6,7 +6,8 @@ import * as request from 'request';
 import { v1 as uuid } from 'uuid';
 import * as Winston from 'winston';
 
-import { DiscordGatewayError } from './errors';
+import { ConnectionLock } from './connectionLock';
+import { DiscordGatewayError, DiscordResponseError } from './errors';
 import { History } from './history';
 import { log } from './log';
 import { IMatcher, SQLMatcher } from './matcher';
@@ -26,12 +27,16 @@ class Sync {
     private pubsub: Redis;
     private redis: Redis;
     private sharding: Sharding;
+    private lock: ConnectionLock;
     private bot: any;
+    private locking = false;
 
     constructor(private matcher: IMatcher) {
         this.history = new History();
+        this.lock = new ConnectionLock(etcd3);
         this.pubsub = redis();
         this.redis = redis();
+        this.lock.start();
     }
 
     /**
@@ -79,22 +84,41 @@ class Sync {
             }
         });
 
-        this.sharding = new Sharding(etcd3, (shardId, shardCount) => {
+        this.sharding = new Sharding(etcd3, () => {
             if (!this.bot || this.bot.state === Discordie.States.CONNECTED) {
-                this.connect(shardId, shardCount);
+                this.createConnection();
             }
         });
         this.sharding.start();
     }
 
     /**
-     * Connect bot to Discord and authenticate
+     * Closes any existing bot connection, and connects to Discord once a connection
+     * lock is acquired.
      */
-    public connect(shardId: number | null, shardCount: number | null) {
+    public async createConnection(): Promise<void> {
         if (this.bot) {
             this.disconnect();
         }
 
+        if (this.locking) {
+            return;
+        }
+
+        log.debug('Waiting for lock...');
+        this.locking = true;
+
+        const lock = await this.lock.lock();
+        const { shardId, shardCount } = this.sharding;
+        this.connect(shardId, shardCount);
+
+        this.locking = false;
+    }
+
+    /**
+     * Connect bot to Discord and authenticate
+     */
+    public connect(shardId: number | null, shardCount: number | null): void {
         if (shardId === null) {
             return;
         }
@@ -108,9 +132,8 @@ class Sync {
         }
 
         log.info({ shardId, shardCount }, 'Connecting to Discord...');
-        const bot = new Discordie(options);
 
-        this.bot = bot;
+        this.bot = new Discordie(options);
         this.bot.connect({ token: config.get('token') });
 
         this.bot.Dispatcher.on(Discordie.Events.GATEWAY_READY, () => this.onReady());
@@ -139,7 +162,7 @@ class Sync {
         const { shardId, shardCount } = this.sharding;
         const options = this.bot.options;
         if ((options.shardId || 0) !== shardId || (options.shardCount || 1) !== shardCount) {
-            this.connect(shardId, shardCount);
+            this.createConnection();
         }
     }
 
@@ -198,6 +221,10 @@ class Sync {
             json: true,
             body: { content: `**<${message.user_name}>:** ${body}` },
         });
+
+        if (res.statusCode === 404 && res.body.code === DiscordResponseError.UnknownChannel) {
+            return this.matcher.unlink(message.channel);
+        }
 
         switch (res.statusCode) {
             case 403:

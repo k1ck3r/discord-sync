@@ -17,6 +17,8 @@
       "no-reserved-keywords": false,
       "missing-jsdoc": false,
       "export-name": false,
-      "chai-vague-errors": false
+      "chai-vague-errors": false,
+      "align": false,
+      "no-unnecessary-callback-wrapper": false
     }
 }
