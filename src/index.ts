@@ -7,35 +7,34 @@ import { v1 as uuid } from 'uuid';
 import * as Winston from 'winston';
 
 import { ConnectionLock } from './connectionLock';
-import { DiscordGatewayError, DiscordResponseError } from './errors';
+import { DiscordGatewayError, DiscordGatewayOp, DiscordResponseError } from './errors';
 import { History } from './history';
 import { log } from './log';
 import { IMatcher, SQLMatcher } from './matcher';
 import { IChatMessage, IDiscordMessage } from './packets';
 import { redis } from './redis';
 import { replace } from './replaceWords';
+import { RetryHandler } from './retryHandler';
 import { Sharding } from './sharding';
 
 // tslint:disable-next-line
-const Discordie = require('discordie');
+const Discordie = require('@mcph/discordie');
 const requestPromise = Bluebird.promisify(request);
 
 const etcd3 = new Etcd3({ hosts: config.get<string[]>('etcd3.hosts') });
 
 class Sync {
-    private history: History;
-    private pubsub: Redis;
-    private redis: Redis;
+    private pubsub = redis();
+    private redis = redis();
+    private history = new History();
+    private lock = new ConnectionLock(etcd3);
+    private retries = new RetryHandler();
+
     private sharding: Sharding;
-    private lock: ConnectionLock;
     private bot: any;
     private locking = false;
 
     constructor(private matcher: IMatcher) {
-        this.history = new History();
-        this.lock = new ConnectionLock(etcd3);
-        this.pubsub = redis();
-        this.redis = redis();
         this.lock.start();
     }
 
@@ -107,11 +106,11 @@ class Sync {
 
         log.debug('Waiting for lock...');
         this.locking = true;
+        this.retries.reset();
 
-        const lock = await this.lock.lock();
+        await this.lock.create();
         const { shardId, shardCount } = this.sharding;
         this.connect(shardId, shardCount);
-
         this.locking = false;
     }
 
@@ -123,9 +122,7 @@ class Sync {
             return;
         }
 
-        let options: { autoReconnect: boolean; shardId?: number; shardCount?: number } = {
-            autoReconnect: true,
-        };
+        let options: { autoReconnect?: boolean; shardId?: number; shardCount?: number } = {};
 
         if (shardCount && shardCount > 1) {
             options = { ...options, shardId, shardCount };
@@ -137,6 +134,7 @@ class Sync {
         this.bot.connect({ token: config.get('token') });
 
         this.bot.Dispatcher.on(Discordie.Events.GATEWAY_READY, () => this.onReady());
+        this.bot.Dispatcher.on(Discordie.Events.GATEWAY_OPEN, () => this.onOpen());
 
         this.bot.Dispatcher.on(Discordie.Events.MESSAGE_CREATE, (e: any) => {
             this.mirrorMessageFromDiscord(
@@ -150,6 +148,24 @@ class Sync {
         this.bot.Dispatcher.on(Discordie.Events.DISCONNECTED, ({ error }: any) =>
             this.onDisconnected(error),
         );
+    }
+
+    /**
+     * Executed when the bot has connected to Discord's gateway, and is about to authenticate.
+     */
+    private onOpen(): void {
+        log.debug('Connection established to Discord gateway.');
+        this.lock.renew();
+
+        // Listen for invalid session errors for debugging purposes.
+        this.bot.gatewaySocket.socket.on('message', (message: string | Buffer) => {
+            if (typeof message === 'string') {
+                const { op, d }: { op: number; d: boolean } = JSON.parse(message);
+                if (op === DiscordGatewayOp.InvalidSession) {
+                    log.warn({ canResume: !!d }, 'Discord gateway rejected the session.');
+                }
+            }
+        });
     }
 
     /**
@@ -176,11 +192,15 @@ class Sync {
                 { shardCount: this.sharding.shardCount },
                 'Each shard owns too many guilds. Refusing to reconnect until more shards are available.',
             );
-            this.bot.autoReconnect.disable();
             return;
         }
 
         log.error({ error, code: error.exception }, 'Disconnected from Discord.');
+        this.retries.retry(async () => {
+            log.debug('Waiting for lock...');
+            await this.lock.create();
+            this.bot.connect();
+        });
     }
 
     /**
@@ -190,6 +210,7 @@ class Sync {
         log.info('Disconnected from Discord.');
         this.bot.disconnect();
         this.bot = null;
+        this.retries.reset();
     }
 
     /**

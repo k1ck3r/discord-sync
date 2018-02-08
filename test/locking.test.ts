@@ -38,12 +38,12 @@ describe('locking', () => {
     });
 
     it('acquires the lock', async () => {
-        await lock.lock();
+        await lock.create();
         expect(await nsp.get('connection').string()).to.not.be.null;
     });
 
     it('releases the lock', async () => {
-        await lock.lock();
+        await lock.create();
         clock.tick(6000);
         await new Promise(resolve => {
             watcher.once('delete', () => resolve());
@@ -55,7 +55,7 @@ describe('locking', () => {
             .onFirstCall()
             .rejects(new EtcdLockFailedError());
         const backoff = stub(lock, 'backoff').resolves();
-        await lock.lock();
+        await lock.create();
         backoff.restore();
     });
 });
