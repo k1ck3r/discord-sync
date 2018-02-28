@@ -1,24 +1,22 @@
 import * as Bluebird from 'bluebird';
 import * as config from 'config';
+import { Client, ClientOptions, Message, RichEmbed, TextChannel } from 'discord.js';
 import { Etcd3 } from 'etcd3';
 import { Redis } from 'ioredis';
 import * as request from 'request';
 import { v1 as uuid } from 'uuid';
-import * as Winston from 'winston';
 
 import { ConnectionLock } from './connectionLock';
-import { DiscordGatewayError, DiscordGatewayOp, DiscordResponseError } from './errors';
+import { DiscordGatewayOp, DiscordGatewayStatus, DiscordResponseError } from './errors';
 import { History } from './history';
 import { log } from './log';
 import { IMatcher, SQLMatcher } from './matcher';
 import { IChatMessage, IDiscordMessage } from './packets';
+import * as prometheus from './prometheus';
 import { redis } from './redis';
-import { replace } from './replaceWords';
 import { RetryHandler } from './retryHandler';
 import { Sharding } from './sharding';
 
-// tslint:disable-next-line
-const Discordie = require('@mcph/discordie');
 const requestPromise = Bluebird.promisify(request);
 
 const etcd3 = new Etcd3({ hosts: config.get<string[]>('etcd3.hosts') });
@@ -31,11 +29,12 @@ class Sync {
     private retries = new RetryHandler();
 
     private sharding: Sharding;
-    private bot: any;
+    private bot: Client | null;
     private locking = false;
 
     constructor(private matcher: IMatcher) {
         this.lock.start();
+        prometheus.start();
     }
 
     /**
@@ -65,10 +64,8 @@ class Sync {
                 case 'PurgeMessage':
                     this.purgeMessage(id, { user_id: data.user_id });
                     break;
-                case 'deleteMessage':
-                    this.purgeMessage(id, { id: data.id });
-                    break;
                 case 'DeleteMessage':
+                case 'deleteMessage':
                     this.purgeMessage(id, { id: data.id });
                     break;
                 case 'UserTimeout':
@@ -84,7 +81,7 @@ class Sync {
         });
 
         this.sharding = new Sharding(etcd3, () => {
-            if (!this.bot || this.bot.state === Discordie.States.CONNECTED) {
+            if (!this.bot || this.bot.status === DiscordGatewayStatus.Ready) {
                 this.createConnection();
             }
         });
@@ -117,55 +114,21 @@ class Sync {
     /**
      * Connect bot to Discord and authenticate
      */
-    public connect(shardId: number | null, shardCount: number | null): void {
-        if (shardId === null) {
+    private connect(shardId: number | null, shardCount: number | null): void {
+        if (shardId === null || shardCount === null) {
             return;
         }
 
-        let options: { autoReconnect?: boolean; shardId?: number; shardCount?: number } = {};
-
-        if (shardCount && shardCount > 1) {
-            options = { ...options, shardId, shardCount };
-        }
-
         log.info({ shardId, shardCount }, 'Connecting to Discord...');
+        prometheus.connectionAttempts.inc();
 
-        this.bot = new Discordie(options);
-        this.bot.connect({ token: config.get('token') });
+        this.bot = new Client({ shardId, shardCount, disableEveryone: true });
+        this.bot.login(config.get('token'));
 
-        this.bot.Dispatcher.on(Discordie.Events.GATEWAY_READY, () => this.onReady());
-        this.bot.Dispatcher.on(Discordie.Events.GATEWAY_OPEN, () => this.onOpen());
-
-        this.bot.Dispatcher.on(Discordie.Events.MESSAGE_CREATE, (e: any) => {
-            this.mirrorMessageFromDiscord(
-                e.message.id,
-                e.message.author.id,
-                e.message.channel_id,
-                e.message.content,
-            ).catch(err => log.error(err));
-        });
-
-        this.bot.Dispatcher.on(Discordie.Events.DISCONNECTED, ({ error }: any) =>
-            this.onDisconnected(error),
-        );
-    }
-
-    /**
-     * Executed when the bot has connected to Discord's gateway, and is about to authenticate.
-     */
-    private onOpen(): void {
-        log.debug('Connection established to Discord gateway.');
-        this.lock.renew();
-
-        // Listen for invalid session errors for debugging purposes.
-        this.bot.gatewaySocket.socket.on('message', (message: string | Buffer) => {
-            if (typeof message === 'string') {
-                const { op, d }: { op: number; d: boolean } = JSON.parse(message);
-                if (op === DiscordGatewayOp.InvalidSession) {
-                    log.warn({ canResume: !!d }, 'Discord gateway rejected the session.');
-                }
-            }
-        });
+        this.bot.on('ready', () => this.onReady());
+        this.bot.on('reconnecting', () => this.onDisconnected());
+        this.bot.on('message', message => this.mirrorMessageFromDiscord(message));
+        this.bot.on('error', err => log.error(err));
     }
 
     /**
@@ -173,86 +136,100 @@ class Sync {
      */
     private onReady(): void {
         log.debug('Connected to chat gateway.');
+        this.lock.renew();
 
         // If the sharding info changed during connection, reconnect now, due to a Discordie issue.
         const { shardId, shardCount } = this.sharding;
-        const options = this.bot.options;
+        const options = this.bot!.options;
         if ((options.shardId || 0) !== shardId || (options.shardCount || 1) !== shardCount) {
             this.createConnection();
         }
+
+        // Listen for invalid session errors for debugging purposes.
+        (<any>this.bot).ws.connection.ws.on('message', (message: string | Buffer) => {
+            if (typeof message === 'string') {
+                const { op, d }: { op: number; d: boolean } = JSON.parse(message);
+                if (op === DiscordGatewayOp.InvalidSession) {
+                    log.warn({ canResume: !!d }, 'Discord gateway rejected the session.');
+                    prometheus.authenticationFailures.inc();
+                }
+            }
+        });
     }
 
     /**
      * Executed when the bot has disconnected from Discord's gateway.
      */
-    private onDisconnected(error: Error & { exception: number }): void {
-        // Discord refused our connection because the total shard count is too small.
-        if (error.exception === DiscordGatewayError.InvalidSharding) {
-            log.error(
-                { shardCount: this.sharding.shardCount },
-                'Each shard owns too many guilds. Refusing to reconnect until more shards are available.',
-            );
-            return;
+    private onDisconnected(error?: Error & { exception: number }): void {
+        if (this.bot) {
+            this.bot.destroy();
         }
 
-        log.error({ error, code: error.exception }, 'Disconnected from Discord.');
-        this.retries.retry(async () => {
-            log.debug('Waiting for lock...');
-            await this.lock.create();
-            this.bot.connect();
-        });
+        log.error({ error }, 'Disconnected from Discord.');
+        prometheus.disconnections.inc();
+        this.retries.retry(() => this.createConnection());
     }
 
     /**
      * Disconnect the bot from the Discord gateway, if connected.
      */
     private disconnect(): void {
-        log.info('Disconnected from Discord.');
-        this.bot.disconnect();
+        log.info('Disconnecting from Discord...');
+        if (this.bot) {
+            this.bot.destroy();
+        }
+
         this.bot = null;
         this.retries.reset();
     }
 
     /**
-     * Sends a request to the Discord API, authenticating as the bot user.
-     */
-    private request(options: request.OptionsWithUrl): Bluebird<request.RequestResponse> {
-        options.headers = { authorization: `Bot ${config.get('token')}` };
-        options.url = `https://discordapp.com/api/v6${options.url}`;
-        return requestPromise(options);
-    }
-
-    /**
      * Handles an incoming chat message, posting it to Discord if possible.
      */
-    private async sendMessageToDiscord(message: IChatMessage): Promise<void> {
-        if (message.message.meta.discord) {
+    private async sendMessageToDiscord(mixerMessage: IChatMessage): Promise<void> {
+        if (!this.bot || mixerMessage.message.meta.discord) {
             return;
         }
 
-        const id = await this.matcher.getDiscordChannel(message.channel);
+        prometheus.messagesFromMixer.inc({ channelID: mixerMessage.channel });
+
+        if (!config.get('chatRelay.mixerToDiscord')) {
+            return;
+        }
+
+        const id = await this.matcher.getDiscordChannel(mixerMessage.channel);
         if (id === null) {
             return;
         }
 
-        const body = replace(message.message.message.map(m => m.text || m.data).join(''));
-        const res = await this.request({
-            method: 'POST',
-            url: `/channels/${id}/messages`,
+        // todo(ethan): we're evaluating how Discord's rate limits impact this feature;
+        // forming a manual HTTP query rather than using discord.js for now, to ensure
+        // we are not retrying 429s.
+        const body = mixerMessage.message.message.map(m => m.text || m.data).join('');
+        const res = await requestPromise({
+            url: `https://discordapp.com/api/v6/channels/${id}/messages`,
+            method: 'post',
             json: true,
-            body: { content: `**<${message.user_name}>:** ${body}` },
+            headers: { authorization: `Bot ${config.get('token')}` },
+            body: { content: `**<${mixerMessage.user_name}>:** ${body}` },
         });
 
         if (res.statusCode === 404 && res.body.code === DiscordResponseError.UnknownChannel) {
-            return this.matcher.unlink(message.channel);
+            return this.matcher.unlink(mixerMessage.channel);
         }
 
         switch (res.statusCode) {
             case 403:
-                this.matcher.unlink(message.channel);
+                this.matcher.unlink(mixerMessage.channel);
                 break;
             case 200:
-                this.history.add(message, id, res.body.id);
+                const channel = this.bot.channels.get(id);
+                if (channel) {
+                    this.history.add(
+                        mixerMessage,
+                        new Message(<TextChannel>channel, res.body, this.bot),
+                    );
+                }
                 break;
             default:
                 log.error(
@@ -265,36 +242,40 @@ class Sync {
     /**
      * Dispatches a message from Discord into a Beam chat channel.
      */
-    private async mirrorMessageFromDiscord(
-        messageID: string,
-        discordUserID: string,
-        discordChannelID: string,
-        message: string,
-    ): Promise<void> {
-        const channelID = await this.matcher.getMixerChannel(discordChannelID);
+    private async mirrorMessageFromDiscord(discordMessage: Message): Promise<void> {
+        const channelID = await this.matcher.getMixerChannel(discordMessage.channel.id);
         if (channelID === null) {
             return;
         }
 
-        const user = await this.matcher.getMixerUser(discordUserID, channelID);
+        prometheus.messagesFromDiscord.inc({ channelID });
+
+        if (!config.get('chatRelay.discordToMixer')) {
+            return;
+        }
+
+        const user = await this.matcher.getMixerUser(discordMessage.author.id, channelID);
         if (user === null || user.roles.includes('Banned')) {
             return;
         }
 
-        const ev: IChatMessage = {
+        const mixerMessage: IChatMessage = {
             id: uuid(),
             channel: channelID,
             user_name: user.username,
             user_id: user.id,
             user_roles: user.roles,
+            user_avatar: null,
             message: {
                 meta: { discord: true },
-                message: [{ type: 'text', data: message, text: message }],
+                message: [
+                    { type: 'text', data: discordMessage.content, text: discordMessage.content },
+                ],
             },
         };
 
-        this.history.add(ev, discordChannelID, messageID);
-        this.redis.publish(`chat:${channelID}:ChatMessage`, JSON.stringify(ev));
+        this.history.add(mixerMessage, discordMessage);
+        this.redis.publish(`chat:${channelID}:ChatMessage`, JSON.stringify(mixerMessage));
     }
 
     /**
@@ -308,30 +289,8 @@ class Sync {
             return;
         }
 
-        let res: request.RequestResponse;
-        if (messages.length === 1) {
-            res = await this.request({
-                url: `/channels/${messages[0].channel}/messages/${messages[0].id}`,
-                method: 'DELETE',
-                json: true,
-            });
-        } else {
-            const channelId = messages[messages.length - 1].channel;
-            res = await this.request({
-                url: `/channels/${channelId}/messages/bulk-delete`,
-                method: 'POST',
-                json: {
-                    messages: messages.slice(-100).map(({ id }) => id),
-                },
-            });
-        }
-
-        if (res.statusCode !== 204) {
-            log.error(
-                { statusCode: res.statusCode, body: res.body, messages: messages.length },
-                'Unexpected response from Discord when purging messages.',
-            );
-        }
+        const textChannel = messages[messages.length - 1].discordMessage.channel;
+        textChannel.bulkDelete(messages.map(message => message.discordMessage));
     }
 }
 

@@ -32,3 +32,4 @@ export const log = Logger.createLogger({
 });
 
 process.on('uncaughtException', err => log.error(err));
+process.on('unhandledRejection', err => log.error(err));

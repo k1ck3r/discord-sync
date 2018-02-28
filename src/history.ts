@@ -1,9 +1,10 @@
+import { Message } from 'discord.js';
+
 import { IChatMessage } from './packets';
 
 export interface IRecord {
-    message: IChatMessage;
-    channel: string;
-    id: string;
+    mixerMessage: IChatMessage;
+    discordMessage: Message;
 }
 
 /**
@@ -20,8 +21,8 @@ export class History {
     /**
      * Add inserts a new message into the history list.
      */
-    public add(message: IChatMessage, channel: string, id: string): void {
-        this.history.push({ message, channel, id });
+    public add(mixerMessage: IChatMessage, discordMessage: Message): void {
+        this.history.push({ mixerMessage, discordMessage });
         if (this.history.length > this.cap * 3 / 2) {
             this.history = this.history.slice(-this.cap);
         }
@@ -31,13 +32,13 @@ export class History {
      * purge deletes messages matching the object and returns the list of
      * messages in channels that were removed.
      */
-    public purge(channelID: number, match: any): IRecord[] {
+    public purge(channelID: number, match: Partial<IChatMessage>): IRecord[] {
         match.channel = channelID;
 
         const predicate = this.match(match);
         const removed: IRecord[] = [];
         for (let i = 0; i < this.history.length; i++) {
-            if (predicate(this.history[i].message)) {
+            if (predicate(this.history[i].mixerMessage)) {
                 removed.push(this.history[i]);
                 this.history.splice(i, 1);
                 i--;
@@ -47,9 +48,12 @@ export class History {
         return removed;
     }
 
-    private match(predicate: any): (obj: any) => boolean {
+    private match(predicate: Partial<IChatMessage>): (obj: IChatMessage) => boolean {
         const keys = Object.keys(predicate);
-        return (match: any) =>
-            !keys.some(key => !match.hasOwnProperty(key) || match[key] !== predicate[key]);
+        return (match: IChatMessage) =>
+            !keys.some(
+                (key: keyof IChatMessage) =>
+                    !match.hasOwnProperty(key) || match[key] !== predicate[key],
+            );
     }
 }

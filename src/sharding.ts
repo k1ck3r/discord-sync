@@ -21,6 +21,7 @@ export class Sharding {
 
     private nsp: Namespace;
     private lease: Lease;
+    private delayedSync: NodeJS.Timer;
 
     constructor(
         private client: Etcd3,
@@ -39,7 +40,7 @@ export class Sharding {
             .create()
             .then(watcher => {
                 watcher.on('put', () => this.syncShards());
-                watcher.on('delete', () => this.syncShards());
+                watcher.on('delete', () => this.syncShardsAfter(15000));
             });
 
         return this.createLease();
@@ -51,8 +52,8 @@ export class Sharding {
      * the lease is lost, Discord will disconnect.
      */
     public async createLease(): Promise<void> {
-        this.lease = this.client.lease(10);
-        this.lease.on('lost', () => {
+        this.lease = this.client.lease(5);
+        this.lease.once('lost', () => {
             log.warn('Lease lost! Attempting to re-establish...');
             this.update(null, null);
             this.createLease();
@@ -68,6 +69,9 @@ export class Sharding {
      * does not yet have one or its shard ID now exceeds the number of shards.
      */
     public async syncShards(): Promise<void> {
+        log.debug('Synchronizing shards...');
+        clearTimeout(this.delayedSync);
+
         const shards = await this.getAllShards();
         let total = shards.length;
         if (this.shardId === null) {
@@ -84,6 +88,14 @@ export class Sharding {
         }
 
         this.update(this.shardId, total);
+    }
+
+    /**
+     * Sync shards after a given delay.
+     */
+    public async syncShardsAfter(delay: number): Promise<void> {
+        clearTimeout(this.delayedSync);
+        this.delayedSync = setTimeout(() => this.syncShards(), delay);
     }
 
     /**
@@ -140,6 +152,7 @@ export class Sharding {
             return;
         }
 
+        log.debug({ shardId, shardCount }, 'Sharding info has changed.');
         this.shardId = shardId;
         this.shardCount = shardCount;
         this.doConnect(shardId, shardCount);

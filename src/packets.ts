@@ -16,6 +16,7 @@ export interface IChatMessage {
     user_name: string;
     user_roles: string[];
     user_id: number;
+    user_avatar: string | null;
     message: {
         message: IMessageComponent[];
         meta: { discord: boolean };

@@ -21,3 +21,10 @@ token: asdfasdfasdfasdfasdf
 
 sentry:
     dsn:
+
+prometheus:
+    port: 9090
+
+chatRelay:
+    discordToMixer: true
+    mixerToDiscord: true
