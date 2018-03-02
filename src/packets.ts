@@ -20,6 +20,10 @@ export interface IChatMessage {
     message: {
         message: IMessageComponent[];
         meta: { discord: boolean };
+        filterId?: number;
+    };
+    recipientFilter?: {
+        roles: string[];
     };
 }
 
@@ -27,10 +31,4 @@ export interface IMessageComponent {
     type: string;
     data: string;
     text: string;
-}
-
-export interface IDiscordMessage {
-    id: string;
-    channel_id: string;
-    content: string;
 }

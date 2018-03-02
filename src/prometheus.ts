@@ -1,6 +1,6 @@
 import * as config from 'config';
 import { createServer } from 'http';
-import { Counter, register } from 'prom-client';
+import { Counter, Gauge, register } from 'prom-client';
 
 export function start() {
     createServer((req, res) => {
@@ -12,6 +12,11 @@ export function start() {
         res.end(register.metrics());
     }).listen(config.get('prometheus.port'));
 }
+
+export const shardCount = new Gauge({
+    name: 'discord_shard_count',
+    help: 'Discord total shard count',
+});
 
 export const connectionAttempts = new Counter({
     name: 'discord_connection_attempts',
@@ -31,11 +36,9 @@ export const disconnections = new Counter({
 export const messagesFromDiscord = new Counter({
     name: 'discord_messages_from_discord',
     help: 'Discord messages relayed from Discord to Mixer',
-    labelNames: ['channelID'],
 });
 
 export const messagesFromMixer = new Counter({
     name: 'discord_messages_from_mixer',
     help: 'Discord messages relayed from Mixer to Discord',
-    labelNames: ['channelID'],
 });

@@ -11,7 +11,7 @@ import { DiscordGatewayOp, DiscordGatewayStatus, DiscordResponseError } from './
 import { History } from './history';
 import { log } from './log';
 import { IMatcher, SQLMatcher } from './matcher';
-import { IChatMessage, IDiscordMessage } from './packets';
+import { IChatMessage } from './packets';
 import * as prometheus from './prometheus';
 import { redis } from './redis';
 import { RetryHandler } from './retryHandler';
@@ -84,7 +84,13 @@ class Sync {
             if (!this.bot || this.bot.status === DiscordGatewayStatus.Ready) {
                 this.createConnection();
             }
+
+            const { shardCount } = this.sharding;
+            if (shardCount) {
+                prometheus.shardCount.set(shardCount);
+            }
         });
+
         this.sharding.start();
     }
 
@@ -187,11 +193,16 @@ class Sync {
      * Handles an incoming chat message, posting it to Discord if possible.
      */
     private async sendMessageToDiscord(mixerMessage: IChatMessage): Promise<void> {
-        if (!this.bot || mixerMessage.message.meta.discord) {
+        if (
+            !this.bot ||
+            mixerMessage.recipientFilter ||
+            mixerMessage.message.filterId ||
+            mixerMessage.message.meta.discord
+        ) {
             return;
         }
 
-        prometheus.messagesFromMixer.inc({ channelID: mixerMessage.channel });
+        prometheus.messagesFromMixer.inc();
 
         if (!config.get('chatRelay.mixerToDiscord')) {
             return;
@@ -248,7 +259,7 @@ class Sync {
             return;
         }
 
-        prometheus.messagesFromDiscord.inc({ channelID });
+        prometheus.messagesFromDiscord.inc();
 
         if (!config.get('chatRelay.discordToMixer')) {
             return;
