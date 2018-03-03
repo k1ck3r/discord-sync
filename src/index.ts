@@ -92,6 +92,10 @@ class Sync {
         });
 
         this.sharding.start();
+        process.once('SIGTERM', async () => {
+            await this.sharding.stop();
+            process.exit();
+        });
     }
 
     /**

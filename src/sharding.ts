@@ -52,7 +52,7 @@ export class Sharding {
      * the lease is lost, Discord will disconnect.
      */
     public async createLease(): Promise<void> {
-        this.lease = this.client.lease(5);
+        this.lease = this.client.lease(3);
         this.lease.once('lost', () => {
             log.warn('Lease lost! Attempting to re-establish...');
             this.update(null, null);
@@ -101,8 +101,8 @@ export class Sharding {
     /**
      * Revokes the lease.
      */
-    public stop(): void {
-        this.lease.revoke();
+    public async stop(): Promise<void> {
+        return this.lease.revoke();
     }
 
     /**
