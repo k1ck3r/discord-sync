@@ -40,7 +40,9 @@ export class Sharding {
             .create()
             .then(watcher => {
                 watcher.on('put', () => this.syncShards());
-                watcher.on('delete', () => this.syncShardsAfter(15000));
+                watcher.on('delete', () =>
+                    this.syncShardsAfter(config.get<number>('etcd3.shardTimeout') * 1000),
+                );
             });
 
         return this.createLease();
@@ -52,7 +54,7 @@ export class Sharding {
      * the lease is lost, Discord will disconnect.
      */
     public async createLease(): Promise<void> {
-        this.lease = this.client.lease(3);
+        this.lease = this.client.lease(config.get<number>('etcd3.shardHealthInterval'));
         this.lease.once('lost', () => {
             log.warn('Lease lost! Attempting to re-establish...');
             this.update(null, null);

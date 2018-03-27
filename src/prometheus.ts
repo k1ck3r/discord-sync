@@ -23,6 +23,11 @@ export const connectionAttempts = new Counter({
     help: 'Discord gateway connection attempts',
 });
 
+export const activeConnections = new Gauge({
+    name: 'discord_active_connections',
+    help: 'Discord gateway active connections',
+});
+
 export const authenticationFailures = new Counter({
     name: 'discord_authentication_failures',
     help: 'Discord gateway authentication failures',

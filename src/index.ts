@@ -146,6 +146,7 @@ class Sync {
      */
     private onReady(): void {
         log.debug('Connected to chat gateway.');
+        prometheus.activeConnections.set(1);
         this.lock.renew();
 
         // If the sharding info changed during connection, reconnect now, due to a Discordie issue.
@@ -177,6 +178,7 @@ class Sync {
 
         log.error({ error }, 'Disconnected from Discord.');
         prometheus.disconnections.inc();
+        prometheus.activeConnections.set(0);
         this.retries.retry(() => this.createConnection());
     }
 
@@ -185,6 +187,8 @@ class Sync {
      */
     private disconnect(): void {
         log.info('Disconnecting from Discord...');
+        prometheus.activeConnections.set(0);
+
         if (this.bot) {
             this.bot.destroy();
         }

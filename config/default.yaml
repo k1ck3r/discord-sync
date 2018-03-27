@@ -15,6 +15,8 @@ etcd3:
     hosts:
     - 127.0.0.1:2379
     namespace: discord/sync
+    shardTimeout: 60
+    shardHealthInterval: 3
 
 # Discord bot token.
 token: asdfasdfasdfasdfasdf
