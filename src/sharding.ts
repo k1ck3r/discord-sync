@@ -55,8 +55,9 @@ export class Sharding {
      */
     public async createLease(): Promise<void> {
         this.lease = this.client.lease(config.get<number>('etcd3.shardHealthInterval'));
-        this.lease.once('lost', () => {
+        this.lease.once('lost', err => {
             log.warn('Lease lost! Attempting to re-establish...');
+            log.error(err);
             this.update(null, null);
             this.createLease();
         });

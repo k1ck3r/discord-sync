@@ -115,10 +115,15 @@ class Sync {
         this.locking = true;
         this.retries.reset();
 
-        await this.lock.create();
-        const { shardId, shardCount } = this.sharding;
-        this.connect(shardId, shardCount);
-        this.locking = false;
+        try {
+            await this.lock.create();
+            const { shardId, shardCount } = this.sharding;
+            this.connect(shardId, shardCount);
+        } catch (err) {
+            log.error(err);
+        } finally {
+            this.locking = false;
+        }
     }
 
     /**
@@ -154,6 +159,7 @@ class Sync {
         const options = this.bot!.options;
         if ((options.shardId || 0) !== shardId || (options.shardCount || 1) !== shardCount) {
             this.createConnection();
+            return;
         }
 
         // Listen for invalid session errors for debugging purposes.
