@@ -1,3 +1,4 @@
+import { roles } from '@mcph/beam-common';
 import * as Bluebird from 'bluebird';
 import * as config from 'config';
 import { Client, ClientOptions, Message, RichEmbed, TextChannel } from 'discord.js';
@@ -20,6 +21,16 @@ import { Sharding } from './sharding';
 const requestPromise = Bluebird.promisify(request);
 
 const etcd3 = new Etcd3({ hosts: config.get<string[]>('etcd3.hosts') });
+
+const colors: { [role: string]: number } = {
+    user: 0x37aad5,
+    pro: 0xc642ea,
+    mod: 0x37ed3b,
+    globalmod: 0x07fdc6,
+    founder: 0xe42d2d,
+    owner: 0xffffff,
+    staff: 0xecbf37,
+};
 
 class Sync {
     private pubsub = redis();
@@ -227,41 +238,23 @@ class Sync {
             return;
         }
 
-        // todo(ethan): we're evaluating how Discord's rate limits impact this feature;
-        // forming a manual HTTP query rather than using discord.js for now, to ensure
-        // we are not retrying 429s.
-        const body = mixerMessage.message.message.map(m => m.text || m.data).join('');
-        const res = await requestPromise({
-            url: `https://discordapp.com/api/v6/channels/${id}/messages`,
-            method: 'post',
-            json: true,
-            headers: { authorization: `Bot ${config.get('token')}` },
-            body: { content: `**<${mixerMessage.user_name}>:** ${body}` },
+        const channel = <TextChannel | undefined>this.bot.channels.get(id);
+        if (!channel) {
+            return;
+        }
+
+        const embed = new RichEmbed({
+            description: mixerMessage.message.message.map(m => m.text || m.data).join(''),
+            color: colors[roles.getDominant(mixerMessage.user_roles).name.toLowerCase()],
+            author: {
+                name: mixerMessage.user_name,
+                icon_url:
+                    mixerMessage.user_avatar ||
+                    'https://mixer.com/_latest/assets/images/main/avatars/default.png',
+            },
         });
 
-        if (res.statusCode === 404 && res.body.code === DiscordResponseError.UnknownChannel) {
-            return this.matcher.unlink(mixerMessage.channel);
-        }
-
-        switch (res.statusCode) {
-            case 403:
-                this.matcher.unlink(mixerMessage.channel);
-                break;
-            case 200:
-                const channel = this.bot.channels.get(id);
-                if (channel) {
-                    this.history.add(
-                        mixerMessage,
-                        new Message(<TextChannel>channel, res.body, this.bot),
-                    );
-                }
-                break;
-            default:
-                log.error(
-                    { statusCode: res.statusCode, body: res.body },
-                    'Unexpected response from Discord when sending message',
-                );
-        }
+        this.history.add(mixerMessage, <Message>await channel.send('', embed));
     }
 
     /**
