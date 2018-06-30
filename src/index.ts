@@ -301,6 +301,14 @@ class Sync {
 
         this.history.add(mixerMessage, discordMessage);
         this.redis.publish(`chat:${channelID}:ChatMessage`, JSON.stringify(mixerMessage));
+
+        const key = `chat:${channelID}:history`;
+        this.redis
+            .pipeline()
+            .lpush(key, JSON.stringify({ op: 'add', data: mixerMessage }))
+            .expire(key, 1000 * 60 * 60)
+            .ltrim(key, 0, 50)
+            .exec();
     }
 
     /**
